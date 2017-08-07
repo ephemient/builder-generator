@@ -19,4 +19,6 @@ public @interface GenerateBuilder {
     String className() default "";
     /** If empty, the generated class will belong to the same package as the target. */
     String packageName() default "";
+    /** If true, the generated class will be public; if false, package-private. */
+    boolean isPublic() default true;
 }

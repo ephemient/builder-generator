@@ -86,6 +86,7 @@ internal class AnnotationProcessor : AbstractProcessor() {
         val className =
             annotations.lastOrNull { it.className.isNotEmpty() }?.className ?:
             "${getName(element).capitalize()}_Builder"
+        val isPublic = annotations.any { it.isPublic }
         val cons = element.enclosedElements.mapNotNull {
             (it as? ExecutableElement)?.takeIf {
                 Modifier.PRIVATE !in it.modifiers &&
@@ -97,7 +98,7 @@ internal class AnnotationProcessor : AbstractProcessor() {
             messager.printMessage(Kind.ERROR, "No accessible constructor found", element)
             return
         }
-        generateClass(packageName, className, cons)
+        generateClass(packageName, className, cons, isPublic)
     }
 
     private fun processMethod(element: ExecutableElement, annotations: Array<GenerateBuilder>) {
@@ -112,12 +113,12 @@ internal class AnnotationProcessor : AbstractProcessor() {
         val className =
             annotations.lastOrNull { it.className.isNotEmpty() }?.className ?:
             "${getName(element).capitalize()}_Builder"
-        generateClass(packageName, className, element)
+        val isPublic = annotations.any { it.isPublic }
+        generateClass(packageName, className, element, isPublic)
     }
 
     private fun generateClass(
-            packageName: String, simpleName: String, element: ExecutableElement,
-            vararg modifiers: Modifier = arrayOf(Modifier.PUBLIC)) {
+            packageName: String, simpleName: String, element: ExecutableElement, isPublic: Boolean) {
         val className = ClassName.get(packageName, simpleName)
         val typeArguments = generateSequence<Parameterizable>(element) { it.enclosingElement as? TypeElement }
             .asIterable().reversed().flatMap { it.typeParameters }
@@ -131,7 +132,7 @@ internal class AnnotationProcessor : AbstractProcessor() {
             addAnnotation(AnnotationSpec.builder(Generated::class.java)
                 .addMember("value", "\$S", this@AnnotationProcessor.javaClass.canonicalName)
                 .build())
-            addModifiers(*modifiers)
+            if (isPublic) addModifiers(Modifier.PUBLIC)
             addTypeVariables(typeArguments)
             val isConstructor = element.kind == ElementKind.CONSTRUCTOR
             val builderArgs = mutableListOf<Any>(TypeName.get(element.enclosingElement.asType()))
