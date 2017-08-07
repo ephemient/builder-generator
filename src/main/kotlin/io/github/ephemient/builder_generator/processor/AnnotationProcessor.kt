@@ -26,6 +26,7 @@ import javax.lang.model.element.PackageElement
 import javax.lang.model.element.Parameterizable
 import javax.lang.model.element.TypeElement
 import javax.tools.Diagnostic.Kind
+import org.jetbrains.annotations.NotNull
 
 internal class AnnotationProcessor : AbstractProcessor() {
     private lateinit var messager: Messager
@@ -161,6 +162,12 @@ internal class AnnotationProcessor : AbstractProcessor() {
                 listOf(type, field)
             }
             addMethod(MethodSpec.methodBuilder("build")
+                .addAnnotations(element.annotationMirrors.map(AnnotationSpec::get)
+                    .filter { it.type != TypeName.get(GenerateBuilder::class.java) }
+                    .let {
+                        if (isConstructor) it + AnnotationSpec.builder(NotNull::class.java).build()
+                        else it
+                    })
                 .addModifiers(Modifier.PUBLIC).returns(returnType)
                 .addStatement(
                     element.parameters.joinToString(
