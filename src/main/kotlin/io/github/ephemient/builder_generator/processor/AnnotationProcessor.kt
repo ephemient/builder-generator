@@ -57,23 +57,20 @@ internal class AnnotationProcessor : AbstractProcessor() {
         return false
     }
 
-    private fun getName(element: TypeElement): String =
-        generateSequence(element) { it.enclosingElement as? TypeElement }
-            .apply { require(all { it.simpleName.isNotEmpty() }) }
-            .asIterable().reversed().joinToString("_") { it.simpleName }
-
-    private fun getName(element: ExecutableElement): String {
-        val name = getName(element.enclosingElement as TypeElement)
-        return element.simpleName.takeIf {
-            it.isNotEmpty() && it[0].isJavaIdentifierStart() &&
-            it.subSequence(1..it.lastIndex).all { it.isJavaIdentifierPart() }
-        }?.let { "${name}_$it" } ?: name
-    }
-
     private fun getPackage(element: Element): String =
         generateSequence(element) { it.enclosingElement }
-            .mapNotNull { (it as? PackageElement)?.qualifiedName }
-            .firstOrNull { it.isNotEmpty() }?.toString() ?: ""
+            .map { (it as? PackageElement)?.qualifiedName?.toString() }
+            .firstOrNull { it?.isNotEmpty() ?: false } ?: ""
+
+    private fun getName(element: TypeElement): String =
+        generateSequence(element) { it.enclosingElement as? TypeElement }
+            .filter { it.simpleName.isNotEmpty() }.asIterable().reversed()
+            .joinToString("_") { it.simpleName }
+
+    private fun getName(element: ExecutableElement): String = when (element.kind) {
+        ElementKind.CONSTRUCTOR -> getName(element.enclosingElement as TypeElement)
+        else -> "${getName(element.enclosingElement as TypeElement)}_${element.simpleName}"
+    }
 
     private fun processClass(element: TypeElement, annotations: Array<GenerateBuilder>) {
         if (element.kind != ElementKind.CLASS || Modifier.ABSTRACT in element.modifiers) {
@@ -87,7 +84,7 @@ internal class AnnotationProcessor : AbstractProcessor() {
             annotations.lastOrNull { it.className.isNotEmpty() }?.className ?:
             "${getName(element).capitalize()}_Builder"
         val isPublic = annotations.any { it.isPublic }
-        val cons = element.enclosedElements.mapNotNull {
+        val cons = element.enclosedElements.asSequence().mapNotNull {
             (it as? ExecutableElement)?.takeIf {
                 Modifier.PRIVATE !in it.modifiers &&
                 it.kind == ElementKind.CONSTRUCTOR &&
@@ -118,23 +115,24 @@ internal class AnnotationProcessor : AbstractProcessor() {
     }
 
     private fun generateClass(
-            packageName: String, simpleName: String, element: ExecutableElement, isPublic: Boolean) {
+        packageName: String, simpleName: String, element: ExecutableElement, isPublic: Boolean
+    ) {
+        val isConstructor = element.kind == ElementKind.CONSTRUCTOR
         val className = ClassName.get(packageName, simpleName)
-        val typeArguments = generateSequence<Parameterizable>(element) { it.enclosingElement as? TypeElement }
-            .asIterable().reversed().flatMap { it.typeParameters }
-            .associateBy { it.simpleName }.values.map(TypeVariableName::get)
+        val typeArguments =
+            generateSequence<Parameterizable>(element) { it.enclosingElement as? TypeElement }
+            .asIterable().reversed().flatMap { it.typeParameters }.associateBy { it.simpleName }
+            .values.map(TypeVariableName::get)
         val typeName = if (typeArguments.isEmpty()) className else
             ParameterizedTypeName.get(className, *typeArguments.toTypedArray())
         val returnType = TypeName.get(
-                if (element.kind == ElementKind.CONSTRUCTOR) element.enclosingElement.asType()
-                else element.returnType)
-        TypeSpec.classBuilder(className).apply {
+            if (isConstructor) element.enclosingElement.asType() else element.returnType)
+        with(TypeSpec.classBuilder(className)) {
             addAnnotation(AnnotationSpec.builder(Generated::class.java)
                 .addMember("value", "\$S", this@AnnotationProcessor.javaClass.canonicalName)
                 .build())
             if (isPublic) addModifiers(Modifier.PUBLIC)
             addTypeVariables(typeArguments)
-            val isConstructor = element.kind == ElementKind.CONSTRUCTOR
             val builderArgs = mutableListOf<Any>(TypeName.get(element.enclosingElement.asType()))
             if (!isConstructor) builderArgs.add(element.simpleName)
             element.parameters.flatMapTo(builderArgs) { parameter ->
@@ -142,42 +140,34 @@ internal class AnnotationProcessor : AbstractProcessor() {
                 val name = parameter.simpleName.toString()
                 val field = FieldSpec.builder(type.box(), name, Modifier.PRIVATE).build()
                 val param = ParameterSpec.builder(type, name)
-                    .addAnnotations(parameter.annotationMirrors.map(AnnotationSpec::get))
-                    .build()
+                    .addAnnotations(parameter.annotationMirrors.map(AnnotationSpec::get)).build()
                 addField(field)
                 addMethod(MethodSpec.methodBuilder("get${name.capitalize()}")
                     .addModifiers(Modifier.PUBLIC).returns(type)
-                    .addStatement("return \$N", field)
-                    .build())
+                    .addStatement("return \$N", field).build())
                 addMethod(MethodSpec.methodBuilder("set${name.capitalize()}")
-                    .addModifiers(Modifier.PUBLIC).returns(TypeName.VOID)
-                    .addParameter(param)
-                    .addStatement("this.\$N = \$N", field, param)
-                    .build())
+                    .addModifiers(Modifier.PUBLIC).returns(TypeName.VOID).addParameter(param)
+                    .addStatement("this.\$N = \$N", field, param).build())
                 addMethod(MethodSpec.methodBuilder("with${name.capitalize()}")
-                    .addModifiers(Modifier.PUBLIC).returns(typeName)
-                    .addParameter(param)
-                    .addStatement("this.\$N = \$N", field, param)
-                    .addStatement("return this")
+                    .addModifiers(Modifier.PUBLIC).returns(typeName).addParameter(param)
+                    .addStatement("this.\$N = \$N", field, param).addStatement("return this")
                     .build())
                 listOf(type, field)
             }
             addMethod(MethodSpec.methodBuilder("build")
-                .addAnnotations(element.annotationMirrors.map(AnnotationSpec::get)
-                    .filter { it.type != TypeName.get(GenerateBuilder::class.java) }
-                    .let {
-                        if (isConstructor) it + AnnotationSpec.builder(NotNull::class.java).build()
-                        else it
-                    })
-                .addModifiers(Modifier.PUBLIC).returns(returnType)
-                .addStatement(
+                .addAnnotations(element.annotationMirrors.map(AnnotationSpec::get).filter {
+                    it.type != TypeName.get(GenerateBuilder::class.java)
+                }.let {
+                    if (isConstructor) it + AnnotationSpec.builder(NotNull::class.java).build()
+                    else it
+                }).addModifiers(Modifier.PUBLIC).returns(returnType)
+                .addExceptions(element.thrownTypes.map(TypeName::get)).addStatement(
                     element.parameters.joinToString(
                         prefix = "return ${if (isConstructor) "new \$T" else "\$T.\$N"}(",
                         postfix = ")") { "(\$T) \$N" },
                     *builderArgs.toTypedArray())
                 .build())
-        }.let {
-            JavaFile.builder(packageName, it.build()).build().writeTo(filer)
+            JavaFile.builder(packageName, build()).build().writeTo(filer)
         }
     }
 }
