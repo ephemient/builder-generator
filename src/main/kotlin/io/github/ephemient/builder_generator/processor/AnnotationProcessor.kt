@@ -25,6 +25,7 @@ import javax.lang.model.element.Modifier
 import javax.lang.model.element.PackageElement
 import javax.lang.model.element.Parameterizable
 import javax.lang.model.element.TypeElement
+import javax.lang.model.type.TypeKind
 import javax.tools.Diagnostic.Kind
 import org.jetbrains.annotations.NotNull
 
@@ -141,11 +142,12 @@ internal class AnnotationProcessor : AbstractProcessor() {
             element.parameters.flatMapTo(builderArgs) { parameter ->
                 val type = TypeName.get(parameter.asType())
                 val name = parameter.simpleName.toString()
+                val getterPrefix = if (parameter.asType().kind == TypeKind.BOOLEAN) "is" else "get"
                 val field = FieldSpec.builder(type.box(), name, Modifier.PRIVATE).build()
                 val param = ParameterSpec.builder(type, name)
                     .addAnnotations(parameter.annotationMirrors.map(AnnotationSpec::get)).build()
                 addField(field)
-                addMethod(MethodSpec.methodBuilder("get${name.capitalize()}")
+                addMethod(MethodSpec.methodBuilder("$getterPrefix${name.capitalize()}")
                     .addModifiers(Modifier.PUBLIC).returns(type)
                     .addStatement("return \$N", field).build())
                 addMethod(MethodSpec.methodBuilder("set${name.capitalize()}")
