@@ -29,6 +29,9 @@ import javax.lang.model.type.TypeKind
 import javax.tools.Diagnostic.Kind
 import org.jetbrains.annotations.NotNull
 
+/**
+ * Writes Java sources of Builder classes for [GenerateBuilder]-annotated elements.
+ */
 internal class AnnotationProcessor : AbstractProcessor() {
     private lateinit var messager: Messager
     private lateinit var filer: Filer
@@ -42,8 +45,7 @@ internal class AnnotationProcessor : AbstractProcessor() {
     override fun getSupportedAnnotationTypes(): Set<String> =
         listOfNotNull(GenerateBuilder::class.qualifiedName).toSet()
 
-    override fun getSupportedSourceVersion(): SourceVersion =
-        SourceVersion.latestSupported()
+    override fun getSupportedSourceVersion(): SourceVersion = SourceVersion.latestSupported()
 
     override fun process(annotations: Set<TypeElement>, env: RoundEnvironment): Boolean {
         for (element in env.getElementsAnnotatedWith(GenerateBuilder::class.java)) {
@@ -60,8 +62,7 @@ internal class AnnotationProcessor : AbstractProcessor() {
 
     private fun getPackage(element: Element): String =
         generateSequence(element) { it.enclosingElement }
-            .map { (it as? PackageElement)?.qualifiedName?.toString() }
-            .firstOrNull { it?.isNotEmpty() ?: false } ?: ""
+            .filterIsInstance<PackageElement>().firstOrNull()?.qualifiedName?.toString() ?: ""
 
     private fun getName(element: TypeElement): String =
         generateSequence(element) { it.enclosingElement as? TypeElement }
@@ -78,20 +79,18 @@ internal class AnnotationProcessor : AbstractProcessor() {
             messager.printMessage(Kind.ERROR, "Not a concrete class", element)
             return
         }
-        val packageName =
-            annotations.lastOrNull { it.packageName.isNotEmpty() }?.packageName
+        val packageName = annotations.lastOrNull { it.packageName.isNotEmpty() }?.packageName
             ?: getPackage(element)
-        val className =
-            annotations.lastOrNull { it.className.isNotEmpty() }?.className
+        val className = annotations.lastOrNull { it.className.isNotEmpty() }?.className
             ?: "${getName(element).capitalize()}_Builder"
         val isPublic = annotations.any { it.isPublic }
-        val cons = element.enclosedElements.asSequence().mapNotNull {
-            (it as? ExecutableElement)?.takeIf {
-                Modifier.PRIVATE !in it.modifiers &&
-                it.kind == ElementKind.CONSTRUCTOR &&
+        // This is a heuristic for the primary constructor, assuming that those with fewer params or
+        // annotation are convenience constructors. Also exclude private as they are unusable.
+        val cons = element.enclosedElements.asSequence()
+            .filterIsInstance<ExecutableElement>().filter {
+                Modifier.PRIVATE !in it.modifiers && it.kind == ElementKind.CONSTRUCTOR &&
                 it.getAnnotation(GenerateBuilder::class.java) == null
-            }
-        }.maxBy { it.parameters.size }
+            }.maxBy { it.parameters.size }
         if (cons == null) {
             messager.printMessage(Kind.ERROR, "No accessible constructor found", element)
             return
@@ -105,11 +104,9 @@ internal class AnnotationProcessor : AbstractProcessor() {
             messager.printMessage(Kind.ERROR, "Not a constructor or static method", element)
             return
         }
-        val packageName =
-            annotations.lastOrNull { it.packageName.isNotEmpty() }?.packageName
+        val packageName = annotations.lastOrNull { it.packageName.isNotEmpty() }?.packageName
             ?: getPackage(element)
-        val className =
-            annotations.lastOrNull { it.className.isNotEmpty() }?.className
+        val className = annotations.lastOrNull { it.className.isNotEmpty() }?.className
             ?: "${getName(element).capitalize()}_Builder"
         val isPublic = annotations.any { it.isPublic }
         generateClass(packageName, className, element, isPublic)
@@ -125,8 +122,8 @@ internal class AnnotationProcessor : AbstractProcessor() {
         val className = ClassName.get(packageName, simpleName)
         val typeArguments =
             generateSequence<Parameterizable>(element) { it.enclosingElement as? TypeElement }
-            .asIterable().reversed().flatMap { it.typeParameters }.associateBy { it.simpleName }
-            .values.map(TypeVariableName::get)
+                .asIterable().reversed().flatMap { it.typeParameters }.associateBy { it.simpleName }
+                .values.map(TypeVariableName::get)
         val typeName = if (typeArguments.isEmpty()) className else
             ParameterizedTypeName.get(className, *typeArguments.toTypedArray())
         val returnType = TypeName.get(
@@ -137,18 +134,24 @@ internal class AnnotationProcessor : AbstractProcessor() {
                 .build())
             if (isPublic) addModifiers(Modifier.PUBLIC)
             addTypeVariables(typeArguments)
+            // When isConstructor, the builder() method body is { return new Type(args...) }.
             val builderArgs = mutableListOf<Any>(TypeName.get(element.enclosingElement.asType()))
+            // When !isConstructor, the builder() method body is { return Type.method(args...) }.
             if (!isConstructor) builderArgs.add(element.simpleName)
             element.parameters.flatMapTo(builderArgs) { parameter ->
                 val type = TypeName.get(parameter.asType())
                 val name = parameter.simpleName.toString()
                 val getterPrefix = if (parameter.asType().kind == TypeKind.BOOLEAN) "is" else "get"
+                // Use boxed fields to avoid defaults for primitive arguments.
+                // It would be nice to make use of Kotlin's default args when if they exist, but
+                // unfortunately that info is only found in a private format in @kotlin.MetaData.
                 val field = FieldSpec.builder(type.box(), name, Modifier.PRIVATE).build()
+                // Copy annotations to the setter param, such as @NotNull.
                 val param = ParameterSpec.builder(type, name)
                     .addAnnotations(parameter.annotationMirrors.map(AnnotationSpec::get)).build()
                 addField(field)
                 addMethod(MethodSpec.methodBuilder("$getterPrefix${name.capitalize()}")
-                    .addModifiers(Modifier.PUBLIC).returns(type)
+                    .addModifiers(Modifier.PUBLIC).returns(type.box())
                     .addStatement("return \$N", field).build())
                 addMethod(MethodSpec.methodBuilder("set${name.capitalize()}")
                     .addModifiers(Modifier.PUBLIC).returns(TypeName.VOID).addParameter(param)
@@ -157,6 +160,8 @@ internal class AnnotationProcessor : AbstractProcessor() {
                     .addModifiers(Modifier.PUBLIC).returns(typeName).addParameter(param)
                     .addStatement("this.\$N = \$N", field, param).addStatement("return this")
                     .build())
+                // The constructor/method is called with "(type) field" arguments to avoid
+                // accidentally resolving to a different overload due the field type being boxed.
                 listOf(type, field)
             }
             addMethod(MethodSpec.methodBuilder("build")
