@@ -78,11 +78,11 @@ internal class AnnotationProcessor : AbstractProcessor() {
             return
         }
         val packageName =
-            annotations.lastOrNull { it.packageName.isNotEmpty() }?.packageName ?:
-            getPackage(element)
+            annotations.lastOrNull { it.packageName.isNotEmpty() }?.packageName
+            ?: getPackage(element)
         val className =
-            annotations.lastOrNull { it.className.isNotEmpty() }?.className ?:
-            "${getName(element).capitalize()}_Builder"
+            annotations.lastOrNull { it.className.isNotEmpty() }?.className
+            ?: "${getName(element).capitalize()}_Builder"
         val isPublic = annotations.any { it.isPublic }
         val cons = element.enclosedElements.asSequence().mapNotNull {
             (it as? ExecutableElement)?.takeIf {
@@ -105,17 +105,20 @@ internal class AnnotationProcessor : AbstractProcessor() {
             return
         }
         val packageName =
-            annotations.lastOrNull { it.packageName.isNotEmpty() }?.packageName ?:
-            getPackage(element)
+            annotations.lastOrNull { it.packageName.isNotEmpty() }?.packageName
+            ?: getPackage(element)
         val className =
-            annotations.lastOrNull { it.className.isNotEmpty() }?.className ?:
-            "${getName(element).capitalize()}_Builder"
+            annotations.lastOrNull { it.className.isNotEmpty() }?.className
+            ?: "${getName(element).capitalize()}_Builder"
         val isPublic = annotations.any { it.isPublic }
         generateClass(packageName, className, element, isPublic)
     }
 
     private fun generateClass(
-        packageName: String, simpleName: String, element: ExecutableElement, isPublic: Boolean
+        packageName: String,
+        simpleName: String,
+        element: ExecutableElement,
+        isPublic: Boolean
     ) {
         val isConstructor = element.kind == ElementKind.CONSTRUCTOR
         val className = ClassName.get(packageName, simpleName)
