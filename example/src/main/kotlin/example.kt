@@ -1,6 +1,6 @@
-package io.github.ephemient.builder_generator.example
+package com.github.ephemient.builder_generator.example
 
-import io.github.ephemient.builder_generator.annotations.GenerateBuilder
+import com.github.ephemient.builder_generator.annotations.GenerateBuilder
 
 // can annotate a class
 @GenerateBuilder

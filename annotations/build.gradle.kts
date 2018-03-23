@@ -3,19 +3,10 @@ plugins {
     maven
 }
 
-task<Jar>("sourcesJar") {
-    dependsOn(tasks["classes"])
+val sourcesJar by tasks.creating(Jar::class) {
+    dependsOn("classes")
     classifier = "sources"
     from(java.sourceSets["main"].allSource)
 }
 
-task<Jar>("javadocJar") {
-    dependsOn(tasks.withType<Javadoc>())
-    classifier = "javadoc"
-    from(tasks.withType<Javadoc>().map { it.destinationDir })
-}
-
-artifacts {
-    add("archives", tasks["sourcesJar"])
-    add("archives", tasks["javadocJar"])
-}
+artifacts.add("archives", sourcesJar)

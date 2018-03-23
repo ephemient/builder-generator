@@ -17,12 +17,10 @@ dependencies {
     implementation("com.squareup:javapoet:1.10.0")
 }
 
-task<Jar>("sourcesJar") {
-    dependsOn(tasks["classes"])
+val sourcesJar by tasks.creating(Jar::class) {
+    dependsOn("classes")
     classifier = "sources"
     from(java.sourceSets["main"].allSource)
 }
 
-artifacts {
-    add("archives", tasks["sourcesJar"])
-}
+artifacts.add("archives", sourcesJar)

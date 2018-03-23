@@ -1,5 +1,6 @@
-package io.github.ephemient.builder_generator.processor
+package com.github.ephemient.builder_generator.processor
 
+import com.github.ephemient.builder_generator.annotations.GenerateBuilder
 import com.squareup.javapoet.AnnotationSpec
 import com.squareup.javapoet.ClassName
 import com.squareup.javapoet.FieldSpec
@@ -10,7 +11,6 @@ import com.squareup.javapoet.ParameterizedTypeName
 import com.squareup.javapoet.TypeName
 import com.squareup.javapoet.TypeSpec
 import com.squareup.javapoet.TypeVariableName
-import io.github.ephemient.builder_generator.annotations.GenerateBuilder
 import javax.annotation.Generated
 import javax.annotation.processing.AbstractProcessor
 import javax.annotation.processing.Filer
@@ -33,20 +33,26 @@ import org.jetbrains.annotations.NotNull
  * Writes Java sources of Builder classes for [GenerateBuilder]-annotated elements.
  */
 internal class AnnotationProcessor : AbstractProcessor() {
+    /** @suppress */
     private lateinit var messager: Messager
+    /** @suppress */
     private lateinit var filer: Filer
 
+    /** @suppress */
     override fun init(env: ProcessingEnvironment) {
         super.init(env)
         messager = env.messager
         filer = env.filer
     }
 
+    /** @suppress */
     override fun getSupportedAnnotationTypes(): Set<String> =
         listOfNotNull(GenerateBuilder::class.qualifiedName).toSet()
 
+    /** @suppress */
     override fun getSupportedSourceVersion(): SourceVersion = SourceVersion.latestSupported()
 
+    /** @suppress */
     override fun process(annotations: Set<TypeElement>, env: RoundEnvironment): Boolean {
         for (element in env.getElementsAnnotatedWith(GenerateBuilder::class.java)) {
             val elementAnnotations = element.getAnnotationsByType(GenerateBuilder::class.java)
@@ -60,20 +66,33 @@ internal class AnnotationProcessor : AbstractProcessor() {
         return false
     }
 
+    /**
+     * Default package name unless overridden in [GenerateBuilder] annotation.
+     * @return package name
+     */
     private fun getPackage(element: Element): String =
         generateSequence(element) { it.enclosingElement }
             .filterIsInstance<PackageElement>().firstOrNull()?.qualifiedName?.toString() ?: ""
 
+    /**
+     * Default base class name (without `_Builder` suffix) unless overridden.
+     * @return underscore-joined simple names (e.g. `Outer.Inner` → `Outer_Inner`)
+     */
     private fun getName(element: TypeElement): String =
         generateSequence(element) { it.enclosingElement as? TypeElement }
             .filter { it.simpleName.isNotEmpty() }.asIterable().reversed()
             .joinToString("_") { it.simpleName }
 
+    /**
+     * Default base class name (without `_Builder` suffix) unless overridden.
+     * @return base name, including method name when applicable
+     */
     private fun getName(element: ExecutableElement): String = when (element.kind) {
         ElementKind.CONSTRUCTOR -> getName(element.enclosingElement as TypeElement)
         else -> "${getName(element.enclosingElement as TypeElement)}_${element.simpleName}"
     }
 
+    /** Generate a builder for the best constructor of a class. */
     private fun processClass(element: TypeElement, annotations: Array<GenerateBuilder>) {
         if (element.kind != ElementKind.CLASS || Modifier.ABSTRACT in element.modifiers) {
             messager.printMessage(Kind.ERROR, "Not a concrete class", element)
@@ -98,6 +117,7 @@ internal class AnnotationProcessor : AbstractProcessor() {
         generateClass(packageName, className, cons, isPublic)
     }
 
+    /** Generate a builder for a constructor or static method. */
     private fun processMethod(element: ExecutableElement, annotations: Array<GenerateBuilder>) {
         if (!(element.kind == ElementKind.CONSTRUCTOR ||
             element.kind == ElementKind.METHOD && Modifier.STATIC in element.modifiers)) {
@@ -112,6 +132,25 @@ internal class AnnotationProcessor : AbstractProcessor() {
         generateClass(packageName, className, element, isPublic)
     }
 
+    /**
+     * Writes out a Java class.
+     *
+     * For example, given
+     *
+     *     @GenerateBuilder class Pair<A, B> {
+     *         Pair(A a, B b);
+     *     }
+     *
+     * it will produce something like
+     *
+     *     class Pair_Builder<A, B> {
+     *         A a;
+     *         B b;
+     *         void setA(A a) { this.a = a; }
+     *         void setB(B b) { this.b = b; }
+     *         Pair<A, B> build() { return new Pair<A, B>(a, b); }
+     *     }
+     */
     private fun generateClass(
         packageName: String,
         simpleName: String,

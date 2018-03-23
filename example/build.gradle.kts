@@ -11,7 +11,7 @@ repositories {
 }
 
 application {
-    mainClassName = "io.github.ephemient.builder_generator.example.ExampleKt"
+    mainClassName = "com.github.ephemient.builder_generator.example.ExampleKt"
 }
 defaultTasks = listOf("run")
 
