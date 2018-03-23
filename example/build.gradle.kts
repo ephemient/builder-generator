@@ -7,6 +7,7 @@ plugins {
 
 repositories {
     mavenCentral()
+    maven("https://jitpack.io")
 }
 
 application {
@@ -15,7 +16,7 @@ application {
 defaultTasks = listOf("run")
 
 dependencies {
-    kapt(rootProject)
-    compileOnly(rootProject)
+    kapt("com.github.ephemient.builder-generator:processor:master-SNAPSHOT")
+    compileOnly("com.github.ephemient.builder-generator:annotations:master-SNAPSHOT")
     implementation(kotlin("stdlib"))
 }
