@@ -2,7 +2,7 @@ plugins {
     kotlin("jvm") version "1.2.30"
     kotlin("kapt") version "1.2.30"
     id("org.jetbrains.dokka") version "0.9.16"
-    id("org.jmailen.kotlinter") version "1.10.0"
+    id("org.jmailen.kotlinter") version "1.11.1"
     maven
 }
 
@@ -39,5 +39,5 @@ task<JavaExec>("ktlintIdea") {
 }
 
 task<Wrapper>("wrapper") {
-    gradleVersion = "4.6"
+    gradleVersion = "4.7"
 }
