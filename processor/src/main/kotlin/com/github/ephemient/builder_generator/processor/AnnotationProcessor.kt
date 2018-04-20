@@ -174,9 +174,11 @@ internal class AnnotationProcessor : AbstractProcessor() {
             if (isPublic) addModifiers(Modifier.PUBLIC)
             addTypeVariables(typeArguments)
             // When isConstructor, the builder() method body is { return new Type(args...) }.
-            val builderArgs = mutableListOf<Any>(TypeName.get(element.enclosingElement.asType()))
-            // When !isConstructor, the builder() method body is { return Type.method(args...) }.
-            if (!isConstructor) builderArgs.add(element.simpleName)
+            val builderArgs: MutableList<Any> =
+                if (isConstructor) mutableListOf(TypeName.get(element.enclosingElement.asType()))
+                else mutableListOf(
+                    ClassName.get(element.enclosingElement.asType()),
+                    element.simpleName)
             element.parameters.flatMapTo(builderArgs) { parameter ->
                 val type = TypeName.get(parameter.asType())
                 val name = parameter.simpleName.toString()
